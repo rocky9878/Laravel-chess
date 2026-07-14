@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
 class MakeMoveRequest extends FormRequest
@@ -27,7 +28,8 @@ class MakeMoveRequest extends FormRequest
             'to' => ['required', 'array', 'size:2'],
             'to.*' => ['between:0,7'],
             'from' => ['required', 'array', 'size:2'],
-            'from.*' => ['between:0,7']
+            'from.*' => ['between:0,7'],
+            'promotion' => ['in:queen,knight,rook,bishop', Rule::excludeUnless(fn() => ($this->from[1] === 6 || $this->from[1] === 1) && ($this->to[1] === 7 || $this->to[1] === 0)), 'nullable']
         ];
     }
 

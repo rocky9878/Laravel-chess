@@ -71,7 +71,7 @@ class BoardController extends Controller
     {
         $piece = $board->pieces->where('x', $request->from[0])->where('y', $request->from[1])->first();
 
-        $board->movePiece($request->to[0], $request->to[1], $piece);
+        $board->movePiece($request->to[0], $request->to[1], $piece, $request->promotion);
 
         return redirect()->route('board.show', $board);
     }
