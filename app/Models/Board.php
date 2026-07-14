@@ -4,13 +4,16 @@ namespace App\Models;
 
 use App\Enums\Colour;
 use App\Models\Concerns\HasManyStates;
+use App\Models\Pieces\Bishop;
 use App\Models\Pieces\King;
+use App\Models\Pieces\Knight;
 use App\Models\Pieces\Pawn;
+use App\Models\Pieces\Queen;
+use App\Models\Pieces\Rook;
 use App\Services\FENParser;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
-use function Pest\Laravel\instance;
 
 #[\Illuminate\Database\Eloquent\Attributes\Fillable([
     'white',
@@ -25,7 +28,7 @@ class Board extends Model
     /** @use HasManyStates<$this> */
     use HasManyStates;
 
-    public const string STARTING_FEN = 'r3k2r/8/8/8/8/8/3P4/R3K2R b KQkq - 0 1';
+    public const string STARTING_FEN = 'r3k2r/1P6/8/8/8/8/8/R3K2R w KQkq - 0 1';
 
     public BoardState $state;
     public Collection $pieces;
@@ -52,7 +55,7 @@ class Board extends Model
         $this->state = $data['state'];
     }
 
-    public function movePiece(int $x, int $y, mixed $piece) {
+    public function movePiece(int $x, int $y, mixed $piece, ?string $promotion) {
         // reset enPassant and take if played
         if(($enPassantTarget = $this->pieces->where('canBeCapturedEnPassant', true))->isNotEmpty()) {
             $enPassantTarget = $enPassantTarget->first();
@@ -76,7 +79,9 @@ class Board extends Model
         // update halfmove counter
         if(($taken = $this->pieces->where('x', $x)->where('y', $y))->isNotEmpty() || $piece instanceof Pawn) {
             $this->state->halfMove = 0;
-            if ($taken->first()) $this->takePiece($taken->first());
+            if($taken->first()) $this->takePiece($taken->first());
+        } else {
+            $this->state->halfMove += 1;
         }
 
         // update turn
@@ -91,6 +96,19 @@ class Board extends Model
         $piece->x = $x;
         $piece->y = $y;
         $piece->hasMoved = true;
+
+        if($piece instanceof Pawn && $promotion) {
+            $colour = $piece->colour;
+
+            $this->pieces->forget($this->pieces->where('colour', $colour)->where('x', $piece->x)->where('y', $piece->y)->keys());
+
+            $this->pieces->push(match($promotion) {
+                'queen' => new Queen($x, $y, $colour),
+                'knight' => new Knight($x, $y, $colour),
+                'rook' => new Rook($x, $y, $colour),
+                'bishop' => new Bishop($x, $y, $colour),
+            });
+        }
 
         $this->states()->create(['fen_string' => $this->getFenString(), 'move' => $this->toAlgebraic($x, $y)]);
     }
