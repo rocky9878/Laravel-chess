@@ -2,11 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\Colour;
 use App\Http\Requests\MakeMoveRequest;
 use App\Models\Board;
-use App\Models\Pieces\Pawn;
-use App\Services\FENParser;
-use Illuminate\Http\Request;
 
 class BoardController extends Controller
 {
@@ -25,15 +23,10 @@ class BoardController extends Controller
             $board = Board::create(['white' => auth()->id()]);
         }
 
-        $pieces = $board->pieces->each(fn($piece) => $piece->legalMoves = $piece->getSemiLegalMoves($board->pieces));
-
-        $pieces->each(fn($piece) =>
-            $piece->legalMoves = $piece->legalMoves?->filter(fn($move) => $board->testIfMoveIsLegal($piece, $move))->values()
-        );
-
         return inertia('Board', [
             'board'  => $board->id,
-            'pieces' => $pieces,
+            'player_colour' => $board->white === auth()->user()?->id ? Colour::WHITE : Colour::BLACK,
+            'pieces' => $board->pieces,
             'state'  => $board->state,
         ]);
     }
@@ -43,15 +36,10 @@ class BoardController extends Controller
      */
     public function show(Board $board)
     {
-        $pieces = $board->pieces->each(fn($piece) => $piece->legalMoves = $piece->getSemiLegalMoves($board->pieces));
-
-        $pieces->each(fn($piece) =>
-            $piece->legalMoves = $piece->legalMoves?->filter(fn($move) => $board->testIfMoveIsLegal($piece, $move))->values()
-        );
-
         return inertia('Board', [
             'board'  => $board->id,
-            'pieces' => $pieces,
+            'player_colour' => $board->white === auth()->user()?->id ? Colour::WHITE : Colour::BLACK,
+            'pieces' => $board->pieces,
             'state'  => $board->state,
         ]);
     }
@@ -71,7 +59,7 @@ class BoardController extends Controller
     {
         $piece = $board->pieces->where('x', $request->from[0])->where('y', $request->from[1])->first();
 
-        $board->movePiece($request->to[0], $request->to[1], $piece, $request->promotion);
+        $board->movePiece($request->to[0], $request->to[1], $piece, $request->validated('promotion'));
 
         return redirect()->route('board.show', $board);
     }

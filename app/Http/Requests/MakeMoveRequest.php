@@ -36,9 +36,7 @@ class MakeMoveRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after(function ($validator): void {
-            $pieces = $this->route('board')->pieces;
-
-            $legalMoves = $pieces->where('x', $this->array('from')[0])->where('y', $this->array('from')[1])->first()->getSemiLegalMoves($pieces);
+            $legalMoves = $this->route('board')->pieces->flatMap(fn($piece) => $piece->legalMoves);
 
             if($legalMoves->filter(fn(array $move) => $move[0] === $this->array('to')[0] && $move[1] === $this->array('to')[1])->isEmpty()) {
                 $validator->errors()->add('to', 'Illegal move');
@@ -46,3 +44,4 @@ class MakeMoveRequest extends FormRequest
         });
     }
 }
+
