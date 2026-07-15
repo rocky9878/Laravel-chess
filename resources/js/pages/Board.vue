@@ -1,12 +1,14 @@
 <script setup lang="ts">
+import { Button } from '@/components/ui/button';
+import { home } from '@/routes';
 import board from '@/routes/board';
 import { Piece, State } from '@/types';
-import { useForm } from '@inertiajs/vue3';
-import { onClickOutside } from '@vueuse/core';
+import { Link, useForm } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
 interface Props {
     board: number;
+    player_colour: string;
     pieces: Piece[];
     state: State;
 }
@@ -45,6 +47,8 @@ function setPiece(x: number, y: number, event: Event): any {
     event.preventDefault();
     if (pieceMap.value[`${x - 1},${y - 1}`].colour !== props.state['toMove']) return;
 
+    // if (pieceMap.value[`${x - 1},${y - 1}`].colour !== props.player_colour) return;
+
     selectedPiece.value = pieceMap.value[`${x - 1},${y - 1}`];
 }
 
@@ -63,9 +67,7 @@ function makeMove(x: number, y: number, piece: Piece, promotingTo: null|string =
         return;
     }
 
-    if(promotingTo) {
-        form.promotion = promotingTo;
-    }
+    form.promotion = promotingTo ?? '';
 
     selectedPiece.value = null;
     form.from = [piece.x, piece.y];
@@ -100,6 +102,14 @@ function deselectPiece() {
             </div>
             <div v-if="promoting" class="w-20 bg-gray-300 shadow absolute" :style="promotionStyles">
                 <img v-for="pieceType in ['queen', 'knight', 'rook', 'bishop']" :src="`/pieces/${promoting.piece.colour.charAt(0)}_${pieceType}.svg`" class="size-20 cursor-pointer" @click.stop="makeMove(promoting.to[0], promoting.to[1], promoting.piece, pieceType)" />
+            </div>
+            <div v-if="state.state !== 'active'" class="absolute rounded shadow-2xl bg-gray-600 top-1/2 left-1/2 -translate-1/2">
+                <div class="capitalize text-center text-4xl font-extrabold px-12 py-8 rounded-t" :class="{ 'bg-green-500': player_colour === state.state }">{{ state.state === player_colour ? 'Checkmate' : state.state }}</div>
+                <div class="mx-auto w-fit my-4">
+                    <Button class="cursor-pointer">
+                        <Link :href="home()">new match</Link>
+                    </Button>
+                </div>
             </div>
         </div>
     </div>

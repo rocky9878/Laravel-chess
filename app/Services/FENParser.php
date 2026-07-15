@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Enums\Colour;
+use App\Enums\State;
 use App\Models\BoardState;
 use App\Models\Pieces\Bishop;
 use App\Models\Pieces\King;
@@ -19,7 +20,6 @@ final class FENParser
 {
     static public function decodeFenString(string $fen)
     {
-        // dd($fen);
         $pieceInfo = substr($fen, 0, strpos($fen, " ")); // all characters before the board characters
 
         $stateInfo = substr($fen, strpos($fen, " ") + 1); // all characters after the piece characters
@@ -34,13 +34,13 @@ final class FENParser
                     $x += intval($char);
                 } else {
                     $rowPieces[] = match($char) {
-                        'r' => new Rook($x, $y, Colour::BLACK, (str_contains($stateInfo, 'k') && $x === 0) || (str_contains($stateInfo, 'q') && $x === 7) ? false : true),
+                        'r' => new Rook($x, $y, Colour::BLACK, (str_contains($stateInfo, 'k') && $x === 7) || (str_contains($stateInfo, 'q') && $x === 0) ? false : true),
                         'n' => new Knight($x, $y, Colour::BLACK),
                         'b' => new Bishop($x, $y, Colour::BLACK),
                         'q' => new Queen($x, $y, Colour::BLACK),
                         'k' => new King($x, $y, Colour::BLACK, str_contains($stateInfo, 'k') || str_contains($stateInfo, 'q') ? false : true),
                         'p' => new Pawn($x, $y, Colour::BLACK, $y === 1 ? false : true, ($x == strpos('abcdefgh', mb_substr($enPassant, 0 , 1)) && 6 == mb_substr($enPassant, 1, 1))),
-                        'R' => new Rook($x, $y, Colour::WHITE, (str_contains($stateInfo, 'K') && $x === 0) || (str_contains($stateInfo, 'Q') && $x === 7) ? false : true),
+                        'R' => new Rook($x, $y, Colour::WHITE, (str_contains($stateInfo, 'K') && $x === 7) || (str_contains($stateInfo, 'Q') && $x === 0) ? false : true),
                         'N' => new Knight($x, $y, Colour::WHITE),
                         'B' => new Bishop($x, $y, Colour::WHITE),
                         'Q' => new Queen($x, $y, Colour::WHITE),
@@ -57,6 +57,7 @@ final class FENParser
 
         $decoded['pieces'] = $pieces;
         $decoded['state'] = new BoardState(
+            State::ACTIVE,
             $stateInfo[0] === 'w' ? Colour::WHITE : Colour::BLACK,
             explode(' ', $stateInfo)[3],
             explode(' ', $stateInfo)[4],
@@ -75,18 +76,12 @@ final class FENParser
                 $piece = $pieces->where('x', $x)->where('y', $y)->first();
                 if($piece) {
                     $string .= match (true) {
-                        $piece instanceof Pawn && $piece->colour === Colour::BLACK => 'p',
-                        $piece instanceof Knight && $piece->colour === Colour::BLACK => 'n',
-                        $piece instanceof Bishop && $piece->colour === Colour::BLACK => 'b',
-                        $piece instanceof Rook && $piece->colour === Colour::BLACK => 'r',
-                        $piece instanceof Queen && $piece->colour === Colour::BLACK => 'q',
-                        $piece instanceof King && $piece->colour === Colour::BLACK => 'k',
-                        $piece instanceof Pawn && $piece->colour === Colour::WHITE => 'P',
-                        $piece instanceof Knight && $piece->colour === Colour::WHITE => 'N',
-                        $piece instanceof Bishop && $piece->colour === Colour::WHITE => 'B',
-                        $piece instanceof Rook && $piece->colour === Colour::WHITE => 'R',
-                        $piece instanceof Queen && $piece->colour === Colour::WHITE => 'Q',
-                        $piece instanceof King && $piece->colour === Colour::WHITE => 'K',
+                        $piece instanceof Pawn => $piece->colour === Colour::BLACK ? 'p' : 'P',
+                        $piece instanceof Knight => $piece->colour === Colour::BLACK ? 'n' : 'N',
+                        $piece instanceof Bishop => $piece->colour === Colour::BLACK ? 'b' : 'B',
+                        $piece instanceof Rook => $piece->colour === Colour::BLACK ? 'r' : 'R',
+                        $piece instanceof Queen => $piece->colour === Colour::BLACK ? 'q' : 'Q',
+                        $piece instanceof King => $piece->colour === Colour::BLACK ? 'k' : 'K',
                     };
                 } else {
                     $increment++;
@@ -106,12 +101,12 @@ final class FENParser
         if(($kings = $pieces->filter(fn($piece) => $piece instanceOf King && $piece->hasMoved === false))->isNotEmpty()) {
             $rooks = $pieces->filter(fn($piece) => $piece instanceOf Rook && $piece->hasMoved === false);
             if($kings->where('colour', Colour::WHITE)->first() && $rooks->isNotEmpty()) {
-                if($rooks->where('colour', Colour::WHITE)->where('x', 7)) $castling .= 'K';
-                if($rooks->where('colour', Colour::WHITE)->where('x', 0)) $castling .= 'Q';
+                if($rooks->where('colour', Colour::WHITE)->where('x', 7)->isNotEmpty()) $castling .= 'K';
+                if($rooks->where('colour', Colour::WHITE)->where('x', 0)->isNotEmpty()) $castling .= 'Q';
             }
             if($kings->where('colour', Colour::BLACK)->first() && $rooks->isNotEmpty()) {
-                if($rooks->where('colour', Colour::BLACK)->where('x', 7)) $castling .= 'k';
-                if($rooks->where('colour', Colour::BLACK)->where('x', 0)) $castling .= 'q';
+                if($rooks->where('colour', Colour::BLACK)->where('x', 7)->isNotEmpty()) $castling .= 'k';
+                if($rooks->where('colour', Colour::BLACK)->where('x', 0)->isNotEmpty()) $castling .= 'q';
             }
         }
 
@@ -122,7 +117,12 @@ final class FENParser
 
         $string .= ' ' . $state->halfMove;
         $string .= ' ' . $state->fullMove;
-        \Log::info($string);
+
         return $string;
+    }
+
+    public static function positionKey(string $fen): string
+    {
+        return implode(' ', array_slice(explode(' ', $fen), 0, 4));
     }
 }
