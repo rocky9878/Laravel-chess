@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\Colour;
 use App\Http\Requests\MakeMoveRequest;
 use App\Models\Board;
+use App\Models\Objects\Move;
 
 class BoardController extends Controller
 {
@@ -26,8 +27,10 @@ class BoardController extends Controller
         return inertia('Board', [
             'board'  => $board->id,
             'player_colour' => $board->white === auth()->user()?->id ? Colour::WHITE : Colour::BLACK,
-            'pieces' => $board->pieces,
+            'pieces' => $board->piecesForFrontend(),
+            'toMove'  => $board->position->toMove,
             'state'  => $board->state,
+            'score' => $board->position->evaluatePosition()
         ]);
     }
 
@@ -39,8 +42,10 @@ class BoardController extends Controller
         return inertia('Board', [
             'board'  => $board->id,
             'player_colour' => $board->white === auth()->user()?->id ? Colour::WHITE : Colour::BLACK,
-            'pieces' => $board->pieces,
+            'pieces' => $board->piecesForFrontend(),
+            'toMove'  => $board->position->toMove,
             'state'  => $board->state,
+            'score' => $board->position->evaluatePosition()
         ]);
     }
 
@@ -57,9 +62,9 @@ class BoardController extends Controller
      */
     public function update(MakeMoveRequest $request, Board $board)
     {
-        $piece = $board->pieces->where('x', $request->from[0])->where('y', $request->from[1])->first();
+        $board->makeMove($request->from, $request->to, $request->validated('promotion'));
 
-        $board->movePiece($request->to[0], $request->to[1], $piece, $request->validated('promotion'));
+        $board->makeBestMove();
 
         return redirect()->route('board.show', $board);
     }

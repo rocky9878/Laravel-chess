@@ -10,10 +10,3 @@ export interface Piece {
     colour: 'black' | 'white';
     legalMoves: Array<[number, number]>;
 }
-
-export interface State {
-    state: 'active' | 'white' | 'black' | 'stalemate' | 'Threefold repition' | '50 move rule' | 'Insufficient material';
-    toMove: 'white' | 'black'
-    halfmove: number;
-    fullmove: number;
-}

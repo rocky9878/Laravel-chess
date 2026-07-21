@@ -6,7 +6,10 @@ namespace App\Services;
 
 use App\Enums\Colour;
 use App\Enums\State;
+use App\Models\Board;
 use App\Models\BoardState;
+use App\Models\Objects\CastleRights;
+use App\Models\Objects\Position;
 use App\Models\Pieces\Bishop;
 use App\Models\Pieces\King;
 use App\Models\Pieces\Knight;
@@ -24,28 +27,27 @@ final class FENParser
 
         $stateInfo = substr($fen, strpos($fen, " ") + 1); // all characters after the piece characters
 
-        $pieces = collect(explode('/', $pieceInfo))->map(function(string $row, int $y) use ($stateInfo) {
+        $pieces = collect(explode('/', $pieceInfo))->map(function(string $row, int $y) {
             $rowPieces = [];
             $x = 0;
-            $enPassant = explode(' ', $stateInfo)[2];
 
             foreach(str_split($row) as $char) {
                 if (is_numeric($char)) {
                     $x += intval($char);
                 } else {
                     $rowPieces[] = match($char) {
-                        'r' => new Rook($x, $y, Colour::BLACK, (str_contains($stateInfo, 'k') && $x === 7) || (str_contains($stateInfo, 'q') && $x === 0) ? false : true),
+                        'r' => new Rook($x, $y, Colour::BLACK),
                         'n' => new Knight($x, $y, Colour::BLACK),
                         'b' => new Bishop($x, $y, Colour::BLACK),
                         'q' => new Queen($x, $y, Colour::BLACK),
-                        'k' => new King($x, $y, Colour::BLACK, str_contains($stateInfo, 'k') || str_contains($stateInfo, 'q') ? false : true),
-                        'p' => new Pawn($x, $y, Colour::BLACK, $y === 1 ? false : true, ($x == strpos('abcdefgh', mb_substr($enPassant, 0 , 1)) && 6 == mb_substr($enPassant, 1, 1))),
-                        'R' => new Rook($x, $y, Colour::WHITE, (str_contains($stateInfo, 'K') && $x === 7) || (str_contains($stateInfo, 'Q') && $x === 0) ? false : true),
+                        'k' => new King($x, $y, Colour::BLACK),
+                        'p' => new Pawn($x, $y, Colour::BLACK, $y === 1 ? false : true),
+                        'R' => new Rook($x, $y, Colour::WHITE),
                         'N' => new Knight($x, $y, Colour::WHITE),
                         'B' => new Bishop($x, $y, Colour::WHITE),
                         'Q' => new Queen($x, $y, Colour::WHITE),
-                        'K' => new King($x, $y, Colour::WHITE, str_contains($stateInfo, 'K') || str_contains($stateInfo, 'Q') ? false : true),
-                        'P' => new Pawn($x, $y, Colour::WHITE, $y === 6 ? false : true, ($x == strpos('abcdefgh', mb_substr($enPassant, 0 , 1)) && 3 == mb_substr($enPassant, 1, 1))),
+                        'K' => new King($x, $y, Colour::WHITE),
+                        'P' => new Pawn($x, $y, Colour::WHITE, $y === 6 ? false : true),
                         default => null,
                     };
                     $x++;
@@ -55,25 +57,29 @@ final class FENParser
             return $rowPieces;
         })->flatten()->filter()->values();
 
-        $decoded['pieces'] = $pieces;
-        $decoded['state'] = new BoardState(
-            State::ACTIVE,
-            $stateInfo[0] === 'w' ? Colour::WHITE : Colour::BLACK,
-            explode(' ', $stateInfo)[3],
-            explode(' ', $stateInfo)[4],
-        );
+        $castleRights = new CastleRights(str_contains($stateInfo, 'K'), str_contains($stateInfo, 'Q'), str_contains($stateInfo, 'k'), str_contains($stateInfo, 'q'));
 
-        return $decoded;
+        $enPassantStr = explode(' ', $stateInfo)[2];
+        $enPassantTarget = [];
+
+        if(strlen($enPassantStr) === 2) {
+            $file = $enPassantStr[0];           // 'a'..'h'
+            $rank = (int) substr($enPassantStr, 1); // '1'..'8'
+
+            $enPassantTarget = [ord($file) - ord('a'), 8 - $rank];
+        }
+
+        return new Position($pieces, $stateInfo[0] === 'w' ? Colour::WHITE : Colour::BLACK, $castleRights, $enPassantTarget, intval(explode(' ', $stateInfo)[3]), intval(explode(' ', $stateInfo)[4]));
     }
 
-    static public function encodeFenString(Collection $pieces, BoardState $state): string
+    static public function encodeFenString(Position $position): string
     {
         $string = '';
 
         for($y = 0; $y < 8; $y++) {
             $increment = 0;
             for($x = 0; $x < 8; $x++) {
-                $piece = $pieces->where('x', $x)->where('y', $y)->first();
+                $piece = $position->pieceAt($x, $y);
                 if($piece) {
                     $string .= match (true) {
                         $piece instanceof Pawn => $piece->colour === Colour::BLACK ? 'p' : 'P',
@@ -86,7 +92,7 @@ final class FENParser
                 } else {
                     $increment++;
                 }
-                if (($pieces->where('x', $x + 1)->where('y', $y)->first() || $x == 7) && !$piece) {
+                if (($position->pieceAt($x + 1, $y) || $x == 7) && !$piece) {
                     $string .= $increment;
                     $increment = 0;
                 }
@@ -94,29 +100,19 @@ final class FENParser
             $string .= ($y !== 7 ? '/' : ' ');
         }
 
-        $string .= ($state->toMove === Colour::WHITE ? 'w ' : 'b ');
+        $string .= ($position->toMove === Colour::WHITE ? 'w ' : 'b ');
 
-        $castling = '';
-
-        if(($kings = $pieces->filter(fn($piece) => $piece instanceOf King && $piece->hasMoved === false))->isNotEmpty()) {
-            $rooks = $pieces->filter(fn($piece) => $piece instanceOf Rook && $piece->hasMoved === false);
-            if($kings->where('colour', Colour::WHITE)->first() && $rooks->isNotEmpty()) {
-                if($rooks->where('colour', Colour::WHITE)->where('x', 7)->isNotEmpty()) $castling .= 'K';
-                if($rooks->where('colour', Colour::WHITE)->where('x', 0)->isNotEmpty()) $castling .= 'Q';
-            }
-            if($kings->where('colour', Colour::BLACK)->first() && $rooks->isNotEmpty()) {
-                if($rooks->where('colour', Colour::BLACK)->where('x', 7)->isNotEmpty()) $castling .= 'k';
-                if($rooks->where('colour', Colour::BLACK)->where('x', 0)->isNotEmpty()) $castling .= 'q';
-            }
-        }
+        $castling = ($position->castling->whiteKingSide ? 'K' : '')
+            . ($position->castling->whiteQueenSide ? 'Q' : '')
+            . ($position->castling->blackKingSide ? 'k' : '')
+            . ($position->castling->blackQueenSide ? 'q' : '');
 
         $string .= $castling ?: '-';
 
-        $passantTarget = $pieces->where('canBeCapturedEnPassant', true)->first();
-        $string .= $passantTarget ? ' '.chr(ord('a') + $passantTarget->x) . ($passantTarget->colour === Colour::WHITE ? 3 : 6) : ' -';
+        $string .= ' '. ($position->enPassantTarget ? Board::toAlgebraic(...$position->enPassantTarget) : '-');
 
-        $string .= ' ' . $state->halfMove;
-        $string .= ' ' . $state->fullMove;
+        $string .= ' ' . $position->halfMove;
+        $string .= ' ' . $position->fullMove;
 
         return $string;
     }
