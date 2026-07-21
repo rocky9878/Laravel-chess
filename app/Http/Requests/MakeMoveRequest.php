@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\Colour;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -14,7 +15,11 @@ class MakeMoveRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return $this->user() !== null;
+        $board = $this->route('board');
+
+        $expectedPlayer = $board->position->toMove === Colour::WHITE ? $board->white : $board->black;
+
+        return $this->user()?->id === $expectedPlayer;
     }
 
     /**
@@ -36,7 +41,8 @@ class MakeMoveRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after(function ($validator): void {
-            $legalMoves = $this->route('board')->pieces->flatMap(fn($piece) => $piece->legalMoves);
+            $pos = $this->route('board')->position;
+            $legalMoves = $pos->legalMovesFor($pos->pieceAt($this->array('from')[0], $this->array('from')[1]));
 
             if($legalMoves->filter(fn(array $move) => $move[0] === $this->array('to')[0] && $move[1] === $this->array('to')[1])->isEmpty()) {
                 $validator->errors()->add('to', 'Illegal move');

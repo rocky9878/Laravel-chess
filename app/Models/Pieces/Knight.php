@@ -3,11 +3,12 @@
 namespace App\Models\Pieces;
 
 use App\Enums\Colour;
+use App\Models\Objects\Position;
 use App\Traits\SerializeAsPiece;
 use Illuminate\Support\Collection;
 use JsonSerializable;
 
-class Knight implements JsonSerializable
+class Knight extends Piece implements JsonSerializable
 {
     use SerializeAsPiece;
 
@@ -17,19 +18,26 @@ class Knight implements JsonSerializable
         $this->colour = $colour;
     }
 
-    public function getSemiLegalMoves(Collection $pieces) {
+    public function getSemiLegalMoves(Position $position): Collection {
         $possibleMoves = collect();
 
         foreach ([[1, 2], [2, 1], [-1, 2], [2, -1], [1, -2], [-1, -2], [-2, -1], [-2, 1]] as [$dx, $dy]) {
             $x = $this->x + $dx;
             $y = $this->y + $dy;
             if ($x >= 0 && $x <= 7 && $y >= 0 && $y <= 7) {
-                if($pieces->where('colour', '=', $this->colour)->where('x', $x)->where('y', $y)->isEmpty()) {
+                $blockingPiece = $position->pieceAt($x, $y);
+
+                if(!$blockingPiece || $blockingPiece->colour !== $this->colour) {
                     $possibleMoves->push([$x, $y]);
                 }
             }
         }
 
         return $possibleMoves;
+    }
+
+    public function withMove(int $x, int $y): static
+    {
+        return new self($x, $y, $this->colour);
     }
 }

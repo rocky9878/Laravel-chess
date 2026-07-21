@@ -3,22 +3,22 @@
 namespace App\Models\Pieces;
 
 use App\Enums\Colour;
+use App\Models\Objects\Position;
 use App\Traits\SerializeAsPiece;
 use Illuminate\Support\Collection;
 use JsonSerializable;
 
-class Rook implements JsonSerializable
+class Rook extends Piece implements JsonSerializable
 {
     use SerializeAsPiece;
 
-    public function __construct(public int $x, public int $y, public Colour $colour, public bool $hasMoved = false) {
+    public function __construct(public int $x, public int $y, public Colour $colour) {
         $this->x = $x;
         $this->y = $y;
         $this->colour = $colour;
-        $this->hasMoved = $hasMoved;
     }
 
-    public function getSemiLegalMoves(Collection $pieces) {
+    public function getSemiLegalMoves(Position $position): Collection {
         $possibleMoves = collect();
 
         // loop through the 4 possible direction;
@@ -27,8 +27,9 @@ class Rook implements JsonSerializable
             $y = $this->y + $dy;
             // loop untill a wall is hit or untill a piece is hit and push a possible move
             while ($x >= 0 && $x <= 7 && $y >= 0 && $y <= 7) {
-                if (($blocking = $pieces->where('x', $x)->where('y', $y))->isNotEmpty()) {
-                    if ($blocking->first()->colour !== $this->colour) $possibleMoves->push([$x, $y]);
+                $blocking = $position->pieceAt($x, $y);
+                if ($blocking) {
+                    if ($blocking->colour !== $this->colour) $possibleMoves->push([$x, $y]);
                     break;
                 }
                 $possibleMoves->push([$x, $y]);
@@ -38,5 +39,10 @@ class Rook implements JsonSerializable
         }
 
         return $possibleMoves;
+    }
+
+    public function withMove(int $x, int $y): static
+    {
+        return new self($x, $y, $this->colour);
     }
 }

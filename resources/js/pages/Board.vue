@@ -2,7 +2,7 @@
 import { Button } from '@/components/ui/button';
 import { home } from '@/routes';
 import board from '@/routes/board';
-import { Piece, State } from '@/types';
+import { Piece } from '@/types';
 import { Link, useForm } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
@@ -10,7 +10,9 @@ interface Props {
     board: number;
     player_colour: string;
     pieces: Piece[];
-    state: State;
+    state: 'active' | 'white' | 'black' | 'stalemate' | 'Threefold repition' | '50 move rule' | 'Insufficient material';
+    toMove: 'white' | 'black';
+    score: number;
 }
 
 interface Promoting {
@@ -45,7 +47,7 @@ function setPiece(x: number, y: number, event: Event): any {
     }
 
     event.preventDefault();
-    if (pieceMap.value[`${x - 1},${y - 1}`].colour !== props.state['toMove']) return;
+    if (pieceMap.value[`${x - 1},${y - 1}`].colour !== props.toMove) return;
 
     // if (pieceMap.value[`${x - 1},${y - 1}`].colour !== props.player_colour) return;
 
@@ -88,8 +90,9 @@ function deselectPiece() {
 </script>
 
 <template>
-    <div class="mt-20" @click="deselectPiece()">
-        <div class="mx-auto w-fit relative">
+    <div class="min-h-screen flex items-center justify-center" @click="deselectPiece()">
+        <div class="text-6xl mr-8">{{ score }}</div>
+        <div class="w-fit relative">
             <div v-for="y in 8" class="max-w-160 flex flex-wrap">
                 <div v-for="x in 8" class="size-20 bg-gray-100 text-black flex justify-center items-center relative" :class="{ 'bg-yellow-500' :(x + y % 2) % 2 }">
                     <img v-if="getPiece(x, y)" :src="`/pieces/${getPiece(x, y)!.colour.charAt(0)}_${getPiece(x, y)!.type}.svg`" class="size-9/10" :class="{'cursor-pointer': !promoting}" @click.stop="setPiece(x, y, $event)" />
@@ -103,8 +106,8 @@ function deselectPiece() {
             <div v-if="promoting" class="w-20 bg-gray-300 shadow absolute" :style="promotionStyles">
                 <img v-for="pieceType in ['queen', 'knight', 'rook', 'bishop']" :src="`/pieces/${promoting.piece.colour.charAt(0)}_${pieceType}.svg`" class="size-20 cursor-pointer" @click.stop="makeMove(promoting.to[0], promoting.to[1], promoting.piece, pieceType)" />
             </div>
-            <div v-if="state.state !== 'active'" class="absolute rounded shadow-2xl bg-gray-600 top-1/2 left-1/2 -translate-1/2">
-                <div class="capitalize text-center text-4xl font-extrabold px-12 py-8 rounded-t" :class="{ 'bg-green-500': player_colour === state.state }">{{ state.state === player_colour ? 'Checkmate' : state.state }}</div>
+            <div v-if="state !== 'active'" class="absolute rounded shadow-2xl bg-gray-600 top-1/2 left-1/2 -translate-1/2">
+                <div class="capitalize text-center text-4xl font-extrabold px-12 py-8 rounded-t" :class="{ 'bg-green-500': player_colour === state }">{{ state === player_colour ? 'Checkmate' : state }}</div>
                 <div class="mx-auto w-fit my-4">
                     <Button class="cursor-pointer">
                         <Link :href="home()">new match</Link>
