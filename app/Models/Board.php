@@ -110,7 +110,14 @@ class Board extends Model
         }
 
         $hasher = new ZobristHasher;
-        $bestMove = $this->position->iterativeDeepening($depth, $hasher, $timeLimit)[1];
+
+        $repetitionCounts = [];
+        foreach ($this->states()->pluck('fen_string') as $fen) {
+            $hash = $hasher->hashPosition(FENParser::decodeFenString($fen));
+            $repetitionCounts[$hash] = ($repetitionCounts[$hash] ?? 0) + 1;
+        }
+
+        $bestMove = $this->position->iterativeDeepening($depth, $hasher, $timeLimit, $repetitionCounts)[1];
 
         $this->makeMove($bestMove);
     }

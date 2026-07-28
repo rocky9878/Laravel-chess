@@ -274,9 +274,82 @@ final class Position
         };
     }
 
-    // https://www.youtube.com/watch?v=l-hh51ncgDI
-    public function alphaBeta(int $alpha, int $beta, int $depthLeft, ZobristHasher $hasher, ?Move $rootMove = null): array
+    /**
+     * Extends the search past the horizon with captures only, so alphaBeta
+     * never stops mid-exchange and misjudges a losing trade as a gain.
+     * Bounded naturally: every recursive call removes a piece from the board.
+     */
+    public function quiesce(int $alpha, int $beta, ?float $deadline = null): int
     {
+        if ($deadline !== null && microtime(true) >= $deadline) {
+            throw new SearchTimedOut;
+        }
+
+        $pieceValue = fn ($p) => match (true) {
+            $p instanceof Pawn => 100, $p instanceof Knight, $p instanceof Bishop => 350,
+            $p instanceof Rook => 525, $p instanceof Queen => 1000, $p instanceof King => 10000,
+            default => 0,
+        };
+
+        $standPat = $this->evaluatePosition();
+        $standPat = $this->toMove === Colour::WHITE ? $standPat : -$standPat;
+
+        if ($standPat >= $beta) {
+            return $beta;
+        }
+
+        if ($standPat > $alpha) {
+            $alpha = $standPat;
+        }
+
+        $captures = [];
+        foreach ($this->pieces as $piece) {
+            if ($piece->colour !== $this->toMove) {
+                continue;
+            }
+            foreach ($this->legalMovesFor($piece) as $destination) {
+                $target = $this->pieceAt(...$destination);
+                $isEnPassant = $piece instanceof Pawn && $this->enPassantTarget === $destination;
+
+                if ($target !== null || $isEnPassant) {
+                    $captures[] = [$piece, $destination, $target];
+                }
+            }
+        }
+
+        usort($captures, fn ($a, $b) => $pieceValue($b[2]) <=> $pieceValue($a[2]));
+
+        foreach ($captures as [$piece, $destination]) {
+            $candidate = new Move([$piece->x, $piece->y], $destination, 'queen');
+            $score = -$this->applyMove($candidate)->quiesce(-$beta, -$alpha, $deadline);
+
+            if ($score >= $beta) {
+                return $beta;
+            }
+
+            if ($score > $alpha) {
+                $alpha = $score;
+            }
+        }
+
+        return $alpha;
+    }
+
+    /**
+     * @param  array<int, int>  $repetitionCounts  Zobrist hash => how many times that exact
+     *                                              position has already occurred, seeded from
+     *                                              the real game history so the search can see
+     *                                              draws by repetition that the game rules would
+     *                                              actually enforce, not just ones it invents
+     *                                              by shuffling pieces back and forth mid-search.
+     */
+    // https://www.youtube.com/watch?v=l-hh51ncgDI
+    public function alphaBeta(int $alpha, int $beta, int $depthLeft, ZobristHasher $hasher, ?Move $rootMove = null, ?float $deadline = null, array $repetitionCounts = []): array
+    {
+        if ($deadline !== null && microtime(true) >= $deadline) {
+            throw new SearchTimedOut;
+        }
+
         $pieceValue = fn ($p) => match (true) {
             $p instanceof Pawn => 100, $p instanceof Knight, $p instanceof Bishop => 350,
             $p instanceof Rook => 525, $p instanceof Queen => 1000, $p instanceof King => 10000,
@@ -284,9 +357,7 @@ final class Position
         };
 
         if ($depthLeft === 0) {
-            $score = $this->evaluatePosition();
-
-            return [$this->toMove === Colour::WHITE ? $score : -$score, $rootMove];
+            return [$this->quiesce($alpha, $beta, $deadline), $rootMove];
         }
 
         $ownHash = $hasher->hashPosition($this);
@@ -324,13 +395,23 @@ final class Position
             $moveToPropagate = $rootMove ?? $candidate;
             $newPosition = $this->applyMove($candidate);
             $positionKey = $hasher->hashPosition($newPosition);
+            $occurrences = ($repetitionCounts[$positionKey] ?? 0) + 1;
 
-            $hashed = $hasher->hashedPosition[$positionKey] ?? null;
-            if ($hashed !== null && $hashed['depth'] >= $depthLeft - 1 && $hashed['bound'] !== 'lower') {
-                $score = $hashed['score'];
+            if ($occurrences >= 3) {
+                // playing this move would make it the third occurrence of the same
+                // position — the game rules let either side claim a draw here, so
+                // treat it as one rather than trusting a positional eval that has
+                // no idea a repetition just became available.
+                $score = 0;
                 $bestDeepMove = $moveToPropagate;
             } else {
-                [$score, $bestDeepMove] = $newPosition->alphaBeta(-$beta, -$alpha, $depthLeft - 1, $hasher, $moveToPropagate);
+                $hashed = $hasher->hashedPosition[$positionKey] ?? null;
+                if ($hashed !== null && $hashed['depth'] >= $depthLeft - 1 && $hashed['bound'] !== 'lower') {
+                    $score = $hashed['score'];
+                    $bestDeepMove = $moveToPropagate;
+                } else {
+                    [$score, $bestDeepMove] = $newPosition->alphaBeta(-$beta, -$alpha, $depthLeft - 1, $hasher, $moveToPropagate, $deadline, [...$repetitionCounts, $positionKey => $occurrences]);
+                }
             }
 
             $score = -$score;
@@ -369,18 +450,27 @@ final class Position
      * transposition table across iterations so each pass orders moves using
      * the best move found by the previous, shallower pass — this triggers
      * alpha-beta cutoffs sooner than searching $maxDepth cold. If $timeLimit
-     * (seconds) is given, the loop stops after the first iteration to exceed
-     * it and returns the best move found by the last fully completed depth.
+     * (seconds) is given, alphaBeta/quiesce abort mid-search once it elapses
+     * (checked at every node, not just between depths) and this returns the
+     * best move found by the last fully completed depth. Depth 1 is never
+     * cut off, so a legal move is always available even under a tight budget.
      *
+     * @param  array<int, int>  $repetitionCounts  Zobrist hash => occurrences so far in the
+     *                                              real game, so the search can see repetition
+     *                                              draws coming. See alphaBeta() for details.
      * @return array{0: int, 1: ?Move}
      */
-    public function iterativeDeepening(int $maxDepth, ZobristHasher $hasher, ?float $timeLimit = null): array
+    public function iterativeDeepening(int $maxDepth, ZobristHasher $hasher, ?float $timeLimit = null, array $repetitionCounts = []): array
     {
         $deadline = $timeLimit !== null ? microtime(true) + $timeLimit : null;
         $best = [0, null];
 
         for ($depth = 1; $depth <= $maxDepth; $depth++) {
-            $result = $this->alphaBeta(-1000000, 1000000, $depth, $hasher);
+            try {
+                $result = $this->alphaBeta(-1000000, 1000000, $depth, $hasher, null, $depth === 1 ? null : $deadline, $repetitionCounts);
+            } catch (SearchTimedOut) {
+                break;
+            }
 
             if ($result[1] !== null) {
                 $best = $result;

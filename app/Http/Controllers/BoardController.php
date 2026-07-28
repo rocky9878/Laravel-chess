@@ -80,7 +80,7 @@ class BoardController extends Controller
      */
     public function computerMove(Board $board)
     {
-        $board->makeBestMove(5, 3);
+        $board->makeBestMove(20, 5);
 
         return redirect()->route('board.show', $board);
     }

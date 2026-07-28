@@ -59,6 +59,12 @@
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-ring: var(--sidebar-ring);
+
+    --color-board-light: var(--board-light);
+    --color-board-dark: var(--board-dark);
+    --color-board-highlight: var(--board-highlight);
+    --color-board-capture: var(--board-capture);
+    --color-board-selected: var(--board-selected);
 }
 
 /*
@@ -124,6 +130,12 @@
     --sidebar-border: hsl(0 0% 91%);
     --sidebar-ring: hsl(217.2 91.2% 59.8%);
     --sidebar: hsl(0 0% 98%);
+
+    --board-light: hsl(36 33% 92%);
+    --board-dark: hsl(142 30% 43%);
+    --board-highlight: hsl(45 93% 55%);
+    --board-capture: hsl(0 72% 51%);
+    --board-selected: hsl(45 93% 55% / 0.35);
 }
 
 .dark {
