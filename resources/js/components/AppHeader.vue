@@ -58,11 +58,6 @@ const mainNavItems: NavItem[] = [
 ];
 
 const rightNavItems: NavItem[] = [
-    {
-        title: 'Repository',
-        href: 'https://github.com/rocky9878/Laravel-chess',
-        icon: Folder,
-    },
 ];
 </script>
 

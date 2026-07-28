@@ -18,11 +18,6 @@ import { home } from '@/routes';
 
 
 const footerNavItems: NavItem[] = [
-    {
-        title: 'Repository',
-        href: 'https://github.com/rocky9878/Laravel-chess',
-        icon: FolderGit2,
-    },
 ];
 </script>
 
