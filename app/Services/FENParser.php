@@ -5,9 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Enums\Colour;
-use App\Enums\State;
 use App\Models\Board;
-use App\Models\BoardState;
 use App\Models\Objects\CastleRights;
 use App\Models\Objects\Position;
 use App\Models\Pieces\Bishop;
@@ -16,26 +14,25 @@ use App\Models\Pieces\Knight;
 use App\Models\Pieces\Pawn;
 use App\Models\Pieces\Queen;
 use App\Models\Pieces\Rook;
-use Illuminate\Support\Collection;
-
 
 final class FENParser
 {
-    static public function decodeFenString(string $fen)
+    public static function decodeFenString(string $fen)
     {
-        $pieceInfo = substr($fen, 0, strpos($fen, " ")); // all characters before the board characters
+        $pieceInfo = substr($fen, 0, strpos($fen, ' ')); // all characters before the board characters
 
-        $stateInfo = substr($fen, strpos($fen, " ") + 1); // all characters after the piece characters
+        $stateInfo = substr($fen, strpos($fen, ' ') + 1); // all characters after the piece characters
 
-        $pieces = collect(explode('/', $pieceInfo))->map(function(string $row, int $y) {
-            $rowPieces = [];
+        $pieces = [];
+
+        foreach (explode('/', $pieceInfo) as $y => $row) {
             $x = 0;
 
-            foreach(str_split($row) as $char) {
+            foreach (str_split($row) as $char) {
                 if (is_numeric($char)) {
                     $x += intval($char);
                 } else {
-                    $rowPieces[] = match($char) {
+                    $piece = match ($char) {
                         'r' => new Rook($x, $y, Colour::BLACK),
                         'n' => new Knight($x, $y, Colour::BLACK),
                         'b' => new Bishop($x, $y, Colour::BLACK),
@@ -50,19 +47,22 @@ final class FENParser
                         'P' => new Pawn($x, $y, Colour::WHITE, $y === 6 ? false : true),
                         default => null,
                     };
+
+                    if ($piece !== null) {
+                        $pieces[] = $piece;
+                    }
+
                     $x++;
                 }
             }
-
-            return $rowPieces;
-        })->flatten()->filter()->values();
+        }
 
         $castleRights = new CastleRights(str_contains($stateInfo, 'K'), str_contains($stateInfo, 'Q'), str_contains($stateInfo, 'k'), str_contains($stateInfo, 'q'));
 
         $enPassantStr = explode(' ', $stateInfo)[2];
         $enPassantTarget = [];
 
-        if(strlen($enPassantStr) === 2) {
+        if (strlen($enPassantStr) === 2) {
             $file = $enPassantStr[0];           // 'a'..'h'
             $rank = (int) substr($enPassantStr, 1); // '1'..'8'
 
@@ -72,27 +72,20 @@ final class FENParser
         return new Position($pieces, $stateInfo[0] === 'w' ? Colour::WHITE : Colour::BLACK, $castleRights, $enPassantTarget, intval(explode(' ', $stateInfo)[3]), intval(explode(' ', $stateInfo)[4]));
     }
 
-    static public function encodeFenString(Position $position): string
+    public static function encodeFenString(Position $position): string
     {
         $string = '';
 
-        for($y = 0; $y < 8; $y++) {
+        for ($y = 0; $y < 8; $y++) {
             $increment = 0;
-            for($x = 0; $x < 8; $x++) {
+            for ($x = 0; $x < 8; $x++) {
                 $piece = $position->pieceAt($x, $y);
-                if($piece) {
-                    $string .= match (true) {
-                        $piece instanceof Pawn => $piece->colour === Colour::BLACK ? 'p' : 'P',
-                        $piece instanceof Knight => $piece->colour === Colour::BLACK ? 'n' : 'N',
-                        $piece instanceof Bishop => $piece->colour === Colour::BLACK ? 'b' : 'B',
-                        $piece instanceof Rook => $piece->colour === Colour::BLACK ? 'r' : 'R',
-                        $piece instanceof Queen => $piece->colour === Colour::BLACK ? 'q' : 'Q',
-                        $piece instanceof King => $piece->colour === Colour::BLACK ? 'k' : 'K',
-                    };
+                if ($piece) {
+                    $string .= $piece->getClassChar();
                 } else {
                     $increment++;
                 }
-                if (($position->pieceAt($x + 1, $y) || $x == 7) && !$piece) {
+                if (($position->pieceAt($x + 1, $y) || $x == 7) && ! $piece) {
                     $string .= $increment;
                     $increment = 0;
                 }
@@ -103,16 +96,16 @@ final class FENParser
         $string .= ($position->toMove === Colour::WHITE ? 'w ' : 'b ');
 
         $castling = ($position->castling->whiteKingSide ? 'K' : '')
-            . ($position->castling->whiteQueenSide ? 'Q' : '')
-            . ($position->castling->blackKingSide ? 'k' : '')
-            . ($position->castling->blackQueenSide ? 'q' : '');
+            .($position->castling->whiteQueenSide ? 'Q' : '')
+            .($position->castling->blackKingSide ? 'k' : '')
+            .($position->castling->blackQueenSide ? 'q' : '');
 
         $string .= $castling ?: '-';
 
-        $string .= ' '. ($position->enPassantTarget ? Board::toAlgebraic(...$position->enPassantTarget) : '-');
+        $string .= ' '.($position->enPassantTarget ? Board::toAlgebraic(...$position->enPassantTarget) : '-');
 
-        $string .= ' ' . $position->halfMove;
-        $string .= ' ' . $position->fullMove;
+        $string .= ' '.$position->halfMove;
+        $string .= ' '.$position->fullMove;
 
         return $string;
     }

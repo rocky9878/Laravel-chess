@@ -5,29 +5,30 @@ namespace App\Models\Pieces;
 use App\Enums\Colour;
 use App\Models\Objects\Position;
 use App\Traits\SerializeAsPiece;
-use Illuminate\Support\Collection;
 use JsonSerializable;
 
 class King extends Piece implements JsonSerializable
 {
     use SerializeAsPiece;
 
-    public function __construct(public int $x, public int $y, public Colour $colour) {
+    public function __construct(public int $x, public int $y, public Colour $colour)
+    {
         $this->x = $x;
         $this->y = $y;
         $this->colour = $colour;
     }
 
-    public function getSemiLegalMoves(Position $position, bool $includeCastling = true): Collection {
-        $possibleMoves = collect();
+    public function getSemiLegalMoves(Position $position, bool $includeCastling = true): array
+    {
+        $possibleMoves = [];
 
         foreach ([[-1, 0], [1, 0], [0, -1], [0, 1], [1, 1], [1, -1], [-1, 1], [-1, -1]] as [$dx, $dy]) {
             $x = $this->x + $dx;
             $y = $this->y + $dy;
             if ($x >= 0 && $x <= 7 && $y >= 0 && $y <= 7) {
                 $piece = $position->pieceAt($x, $y);
-                if (empty($position->pieceAt($x, $y)) || $piece->colour !== $this->colour) {
-                    $possibleMoves->push([$x, $y]);
+                if (! $piece || $piece->colour !== $this->colour) {
+                    $possibleMoves[] = [$x, $y];
                 }
             }
         }
@@ -35,40 +36,115 @@ class King extends Piece implements JsonSerializable
         if ($includeCastling) {
             $kingSideRight = $this->colour === Colour::WHITE ? $position->castling->whiteKingSide : $position->castling->blackKingSide;
             $queenSideRight = $this->colour === Colour::WHITE ? $position->castling->whiteQueenSide : $position->castling->blackQueenSide;
+            $opponent = $this->colour === Colour::WHITE ? Colour::BLACK : Colour::WHITE;
 
-            $rooks = $position->pieces->whereInstanceOf(Rook::class)
-                ->where('colour', $this->colour)
-                ->filter(fn($rook) => ($rook->x === 0 && $queenSideRight) || ($rook->x === 7 && $kingSideRight));
+            foreach ([0, 7] as $rookX) {
+                $isQueenSide = $rookX === 0;
 
-            foreach ($rooks as $rook) {
-                $between = range(min($rook->x, $this->x) + 1, max($rook->x, $this->x) - 1);
-
-                if ($position->pieces->filter(fn($p) => in_array($p->x, $between) && $p->y === $this->y)->isNotEmpty()) {
+                if ($isQueenSide && ! $queenSideRight) {
+                    continue;
+                }
+                if (! $isQueenSide && ! $kingSideRight) {
                     continue;
                 }
 
-                $attackedSquares = collect();
-                $position->pieces->where('colour', '!=', $this->colour)
-                    ->filter(fn($p) => !($p instanceof King))
-                    ->each(fn($piece) => $attackedSquares->push(...$piece->getSemiLegalMoves($position)));
-
-                $kingPath = $rook->x < $this->x ? [$this->x - 1, $this->x - 2] : [$this->x + 1, $this->x + 2];
-                if ($attackedSquares->contains(fn($sq) => in_array($sq[0], $kingPath) && $sq[1] === $this->y)) {
+                $rook = $position->pieceAt($rookX, $this->y);
+                if (! ($rook instanceof Rook) || $rook->colour !== $this->colour) {
                     continue;
                 }
 
-                $attackedSquares = collect();
-                $position->pieces->where('colour', '!=', $this->colour)
-                    ->each(fn($piece) => $attackedSquares->push(...$piece->getSemiLegalMoves($position, false)));
-
-                $kingPath = $rook->x < $this->x ? [$this->x - 1, $this->x - 2] : [$this->x + 1, $this->x + 2];
-                if ($attackedSquares->contains(fn($sq) => in_array($sq[0], $kingPath) && $sq[1] === $this->y || $sq[0] === $this->x && $sq[1] === $this->y)) {
+                $pathClear = true;
+                foreach (range(min($rookX, $this->x) + 1, max($rookX, $this->x) - 1) as $bx) {
+                    if ($position->pieceAt($bx, $this->y)) {
+                        $pathClear = false;
+                        break;
+                    }
+                }
+                if (! $pathClear) {
                     continue;
                 }
 
-                $destination = $rook->x < $this->x ? 2 : 6;
+                $kingPath = $isQueenSide ? [$this->x, $this->x - 1, $this->x - 2] : [$this->x, $this->x + 1, $this->x + 2];
 
-                $possibleMoves->push([$destination, $this->y]);
+                $safe = true;
+                foreach ($kingPath as $kx) {
+                    if ($position->isSquareAttacked($kx, $this->y, $opponent)) {
+                        $safe = false;
+                        break;
+                    }
+                }
+                if (! $safe) {
+                    continue;
+                }
+
+                $destination = $isQueenSide ? 2 : 6;
+                $possibleMoves[] = [$destination, $this->y];
+            }
+        }
+
+        return $possibleMoves;
+    }
+
+    public function countSemiLegalMoves(Position $position, bool $includeCastling = true): int
+    {
+        $possibleMoves = 0;
+
+        foreach ([[-1, 0], [1, 0], [0, -1], [0, 1], [1, 1], [1, -1], [-1, 1], [-1, -1]] as [$dx, $dy]) {
+            $x = $this->x + $dx;
+            $y = $this->y + $dy;
+            if ($x >= 0 && $x <= 7 && $y >= 0 && $y <= 7) {
+                $piece = $position->pieceAt($x, $y);
+                if (! $piece || $piece->colour !== $this->colour) {
+                    $possibleMoves++;
+                }
+            }
+        }
+
+        if ($includeCastling) {
+            $kingSideRight = $this->colour === Colour::WHITE ? $position->castling->whiteKingSide : $position->castling->blackKingSide;
+            $queenSideRight = $this->colour === Colour::WHITE ? $position->castling->whiteQueenSide : $position->castling->blackQueenSide;
+            $opponent = $this->colour === Colour::WHITE ? Colour::BLACK : Colour::WHITE;
+
+            foreach ([0, 7] as $rookX) {
+                $isQueenSide = $rookX === 0;
+
+                if ($isQueenSide && ! $queenSideRight) {
+                    continue;
+                }
+                if (! $isQueenSide && ! $kingSideRight) {
+                    continue;
+                }
+
+                $rook = $position->pieceAt($rookX, $this->y);
+                if (! ($rook instanceof Rook) || $rook->colour !== $this->colour) {
+                    continue;
+                }
+
+                $pathClear = true;
+                foreach (range(min($rookX, $this->x) + 1, max($rookX, $this->x) - 1) as $bx) {
+                    if ($position->pieceAt($bx, $this->y)) {
+                        $pathClear = false;
+                        break;
+                    }
+                }
+                if (! $pathClear) {
+                    continue;
+                }
+
+                $kingPath = $isQueenSide ? [$this->x, $this->x - 1, $this->x - 2] : [$this->x, $this->x + 1, $this->x + 2];
+
+                $safe = true;
+                foreach ($kingPath as $kx) {
+                    if ($position->isSquareAttacked($kx, $this->y, $opponent)) {
+                        $safe = false;
+                        break;
+                    }
+                }
+                if (! $safe) {
+                    continue;
+                }
+
+                $possibleMoves++;
             }
         }
 

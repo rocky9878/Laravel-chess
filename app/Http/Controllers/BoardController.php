@@ -6,13 +6,13 @@ use App\Enums\Colour;
 use App\Http\Requests\MakeMoveRequest;
 use App\Models\Board;
 use App\Models\Objects\Move;
+use Illuminate\Http\Request;
 
 class BoardController extends Controller
 {
     /**
      * Display a listing of the resource.
      */
-
     public function index()
     {
         $board = Board::where('white', auth()->id())
@@ -25,27 +25,31 @@ class BoardController extends Controller
         }
 
         return inertia('Board', [
-            'board'  => $board->id,
+            'board' => $board->id,
             'player_colour' => $board->white === auth()->user()?->id ? Colour::WHITE : Colour::BLACK,
             'pieces' => $board->piecesForFrontend(),
-            'toMove'  => $board->position->toMove,
-            'state'  => $board->state,
-            'score' => $board->position->evaluatePosition()
+            'toMove' => $board->position->toMove,
+            'state' => $board->state,
+            'score' => $board->position->evaluatePosition($board->state),
         ]);
     }
 
     /**
      * Display the specified resource.
      */
-    public function show(Board $board)
+    public function show(Request $request, Board $board)
     {
+        if ($request->user()->cannot('view', $board)) {
+            abort(403);
+        }
+
         return inertia('Board', [
-            'board'  => $board->id,
+            'board' => $board->id,
             'player_colour' => $board->white === auth()->user()?->id ? Colour::WHITE : Colour::BLACK,
             'pieces' => $board->piecesForFrontend(),
-            'toMove'  => $board->position->toMove,
-            'state'  => $board->state,
-            'score' => $board->position->evaluatePosition()
+            'toMove' => $board->position->toMove,
+            'state' => $board->state,
+            'score' => $board->position->evaluatePosition($board->state),
         ]);
     }
 
@@ -62,9 +66,21 @@ class BoardController extends Controller
      */
     public function update(MakeMoveRequest $request, Board $board)
     {
-        $board->makeMove($request->from, $request->to, $request->validated('promotion'));
+        if ($request->user()->cannot('update', $board)) {
+            abort(403);
+        }
 
-        $board->makeBestMove();
+        $board->makeMove(new Move($request->from, $request->to, $request->validated('promotion')));
+
+        return redirect()->route('board.show', $board);
+    }
+
+    /**
+     * Make the computer's move for the given board.
+     */
+    public function computerMove(Board $board)
+    {
+        $board->makeBestMove(5, 3);
 
         return redirect()->route('board.show', $board);
     }

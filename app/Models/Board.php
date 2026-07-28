@@ -2,32 +2,26 @@
 
 namespace App\Models;
 
-use App\Enums\Colour;
 use App\Enums\State;
 use App\Models\Concerns\HasManyStates;
 use App\Models\Objects\Move;
 use App\Models\Objects\Position;
-use App\Models\Pieces\Bishop;
-use App\Models\Pieces\King;
-use App\Models\Pieces\Knight;
-use App\Models\Pieces\Pawn;
-use App\Models\Pieces\Queen;
-use App\Models\Pieces\Rook;
 use App\Services\FENParser;
+use App\Services\OpeningBook;
+use App\Services\ZobristHasher;
+use Database\Factories\BoardFactory;
+use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Arr;
-use Illuminate\Support\Collection;
-use stdClass;
 
-#[\Illuminate\Database\Eloquent\Attributes\Fillable([
+#[Fillable([
     'white',
     'black',
     'state',
 ])]
 class Board extends Model
 {
-    /** @use HasFactory<\Database\Factories\BoardFactory> */
+    /** @use HasFactory<BoardFactory> */
     use HasFactory;
 
     /** @use HasManyStates<$this> */
@@ -57,81 +51,39 @@ class Board extends Model
         });
     }
 
-    public function piecesForFrontend(): Collection
+    public function piecesForFrontend(): array
     {
-        return $this->position->pieces
-            ->map(fn ($piece) => [
-                ...$piece->jsonSerialize(),
-                'legalMoves' => $this->position->legalMovesFor($piece)?->values(),
-            ])->values();
+        return array_map(fn ($piece) => [
+            ...$piece->jsonSerialize(),
+            'legalMoves' => $this->position->legalMovesFor($piece),
+        ], $this->position->pieces);
     }
 
-    public function makeMove(array $from, array $to, ?string $promotion) {
-        $this->position = $this->position->applyMove(new Move([$from[0], $from[1]], [$to[0], $to[1]], $promotion));
+    public function makeMove(Move $move)
+    {
+        $this->position = $this->position->applyMove($move);
 
-        $this->saveState($to);
+        $this->saveState($move->to);
     }
 
-    public function saveState(array $move) {
+    public function saveState(array $moveDestination)
+    {
         $fen = FENParser::encodeFenString($this->position);
 
-        $this->states()->create(['fen_string' => $fen, 'move' => $this->toAlgebraic(...$move)]);
+        $this->states()->create(['fen_string' => $fen, 'move' => $this->toAlgebraic(...$moveDestination)]);
 
         $this->setGameState();
     }
 
-    public function makeBestMove() {
+    public function setGameState()
+    {
+        $history = $this->states()->pluck('fen_string');
+
+        $this->state = $this->position->isThreefoldRepetition($history)
+            ? State::THREEFOLD_REPITION
+            : $this->position->terminalState();
+
         if ($this->state !== State::ACTIVE) {
-            return;
-        }
-
-        $piece = $this->piecesForFrontend()->where('colour', Colour::BLACK)->filter(fn($piece) => !$piece['legalMoves']->isEmpty())->random();
-
-        $this->position = $this->position->applyMove(new Move([$piece['x'], $piece['y']], [$piece['legalMoves']->first()[0], $piece['legalMoves']->first()[1]]));
-
-        $this->saveState([$piece['legalMoves']->first()[0], $piece['legalMoves']->first()[1]]);
-    }
-
-    public function setGameState() {
-        // insufficiant material rule
-        if (($whitePieces = $this->position->pieces->where('colour', Colour::WHITE))->count() <= 2 && ($blackPieces = $this->position->pieces->where('colour', Colour::BLACK))->count() <= 2){
-            if ($whitePieces->whereInstanceOf(Bishop::class)->isNotEmpty() || $whitePieces->whereInstanceOf(Knight::class)->isNotEmpty() || $whitePieces->count() === 1) {
-                if ($blackPieces->whereInstanceOf(Bishop::class)->isNotEmpty() || $blackPieces->whereInstanceOf(Knight::class)->isNotEmpty() || $blackPieces->count() === 1) {
-                    $this->state = State::INSUFFICIENT_MATERIAL;
-                }
-            }
-        }
-
-        // 3 fold repition rule
-        $positionKey = FENParser::positionKey(FENParser::encodeFenString($this->position));
-
-        $repetitions = $this->states()
-            ->pluck('fen_string')
-            ->filter(fn($fen) => FENParser::positionKey($fen) === $positionKey)
-            ->count();
-
-        if ($repetitions >= 3) {
-            $this->state = State::THREEFOLD_REPITION;
-        }
-
-        // checkmate/stalemate
-        $allMoves = collect();
-
-        $this->position->pieces->where('colour', $this->position->toMove)->each(function($piece) use ($allMoves) {
-            $allMoves->push(...$this->position->legalMovesFor($piece));
-        });
-
-        $king = $this->position->pieces->whereInstanceOf(King::class)->where('colour', $this->position->toMove)->first();
-
-        $isInCheck = $this->position->pieces->where('colour', '!=', $this->position->toMove)->contains(fn($piece) => $this->position->legalMovesFor($piece)->contains(fn($sq) => $sq[0] === $king->x && $sq[1] === $king->y));
-
-        if($allMoves->isEmpty()) {
-            $this->state = $isInCheck
-                ? ($this->position->toMove === Colour::WHITE ? State::BLACK : State::WHITE)
-                : State::STALEMATE;
-        }
-
-        if($this->state !== State::ACTIVE) {
             $this->setAttribute('state', $this->state);
             $this->save();
         }
@@ -139,31 +91,27 @@ class Board extends Model
 
     public static function toAlgebraic(int $x, int $y): string
     {
-        return \chr(\ord('a') + $x) . (8 - $y);
+        return \chr(\ord('a') + $x).(8 - $y);
     }
 
-    // public function makeBestMove() {
-    //     $origin = $this->getFenString();
+    public function makeBestMove(int $depth, float $timeLimit)
+    {
+        if ($this->state !== State::ACTIVE) {
+            return;
+        }
 
-    //     $pieces = $this->pieces->where('colour', Colour::BLACK)->filter(fn($piece) => $piece->legalMoves->isNotEmpty())->all();
+        $book = new OpeningBook(storage_path('app/books/book.bin'));
+        $bookMove = $book->findMove($this->position);
 
-    //     $minEval = 1000000;
-    //     $bestMove = [];
-    //     $bestPiece = null;
+        if ($bookMove !== null) {
+            $this->makeMove($bookMove);
 
-    //     foreach($pieces as $piece) {
-    //         foreach($piece->legalMoves as $move) {
-    //             $this->movePiece($move[0], $move[1], $piece, '', false);
-    //             $eval = $this->evaluatePosition($this);
-    //             if($eval < $minEval) {
-    //                 $minEval = $eval;
-    //                 $bestMove = $move;
-    //                 $bestPiece = $piece;
-    //             }
-    //             $this->loadBoardState($origin);
-    //         }
-    //     }
+            return;
+        }
 
-    //     $this->movePiece($bestMove[0], $bestMove[1], $bestPiece);
-    // }
+        $hasher = new ZobristHasher;
+        $bestMove = $this->position->iterativeDeepening($depth, $hasher, $timeLimit)[1];
+
+        $this->makeMove($bestMove);
+    }
 }

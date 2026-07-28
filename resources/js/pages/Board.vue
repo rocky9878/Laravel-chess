@@ -3,12 +3,12 @@ import { Button } from '@/components/ui/button';
 import { home } from '@/routes';
 import board from '@/routes/board';
 import { Piece } from '@/types';
-import { Link, useForm } from '@inertiajs/vue3';
-import { computed, ref } from 'vue';
+import { Link, router, useForm } from '@inertiajs/vue3';
+import { computed, ref, watch } from 'vue';
 
 interface Props {
     board: number;
-    player_colour: string;
+    player_colour: 'white' | 'black';
     pieces: Piece[];
     state: 'active' | 'white' | 'black' | 'stalemate' | 'Threefold repition' | '50 move rule' | 'Insufficient material';
     toMove: 'white' | 'black';
@@ -49,7 +49,7 @@ function setPiece(x: number, y: number, event: Event): any {
     event.preventDefault();
     if (pieceMap.value[`${x - 1},${y - 1}`].colour !== props.toMove) return;
 
-    // if (pieceMap.value[`${x - 1},${y - 1}`].colour !== props.player_colour) return;
+    if (pieceMap.value[`${x - 1},${y - 1}`].colour !== props.player_colour) return;
 
     selectedPiece.value = pieceMap.value[`${x - 1},${y - 1}`];
 }
@@ -87,6 +87,27 @@ function deselectPiece() {
     selectedPiece.value = null;
 }
 
+const computerThinking = ref(false);
+
+watch(
+    () => [props.toMove, props.state] as const,
+    ([toMove, state]) => {
+        if (state !== 'active' || toMove === props.player_colour || computerThinking.value) {
+            return;
+        }
+
+        computerThinking.value = true;
+
+        router.post(board.computerMove(props.board).url, {}, {
+            preserveScroll: true,
+            onFinish: () => {
+                computerThinking.value = false;
+            },
+        });
+    },
+    { immediate: true }
+);
+
 </script>
 
 <template>
@@ -105,6 +126,9 @@ function deselectPiece() {
             </div>
             <div v-if="promoting" class="w-20 bg-gray-300 shadow absolute" :style="promotionStyles">
                 <img v-for="pieceType in ['queen', 'knight', 'rook', 'bishop']" :src="`/pieces/${promoting.piece.colour.charAt(0)}_${pieceType}.svg`" class="size-20 cursor-pointer" @click.stop="makeMove(promoting.to[0], promoting.to[1], promoting.piece, pieceType)" />
+            </div>
+            <div v-if="computerThinking" class="absolute -top-10 left-1/2 -translate-x-1/2 text-sm text-gray-500 italic">
+                thinking…
             </div>
             <div v-if="state !== 'active'" class="absolute rounded shadow-2xl bg-gray-600 top-1/2 left-1/2 -translate-1/2">
                 <div class="capitalize text-center text-4xl font-extrabold px-12 py-8 rounded-t" :class="{ 'bg-green-500': player_colour === state }">{{ state === player_colour ? 'Checkmate' : state }}</div>

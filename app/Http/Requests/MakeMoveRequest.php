@@ -34,7 +34,7 @@ class MakeMoveRequest extends FormRequest
             'to.*' => ['between:0,7'],
             'from' => ['required', 'array', 'size:2'],
             'from.*' => ['between:0,7'],
-            'promotion' => ['in:queen,knight,rook,bishop', Rule::excludeUnless(fn() => ($this->from[1] === 6 || $this->from[1] === 1) && ($this->to[1] === 7 || $this->to[1] === 0)), 'nullable']
+            'promotion' => ['in:queen,knight,rook,bishop', Rule::excludeUnless(fn () => ($this->from[1] === 6 || $this->from[1] === 1) && ($this->to[1] === 7 || $this->to[1] === 0)), 'nullable'],
         ];
     }
 
@@ -42,12 +42,21 @@ class MakeMoveRequest extends FormRequest
     {
         $validator->after(function ($validator): void {
             $pos = $this->route('board')->position;
-            $legalMoves = $pos->legalMovesFor($pos->pieceAt($this->array('from')[0], $this->array('from')[1]));
+            $piece = $pos->pieceAt($this->array('from')[0], $this->array('from')[1]);
 
-            if($legalMoves->filter(fn(array $move) => $move[0] === $this->array('to')[0] && $move[1] === $this->array('to')[1])->isEmpty()) {
+            if ($piece === null) {
+                $validator->errors()->add('from', 'No piece at that square');
+
+                return;
+            }
+
+            $legalMoves = $pos->legalMovesFor($piece);
+
+            $isLegal = array_any($legalMoves, fn (array $move) => $move[0] === $this->array('to')[0] && $move[1] === $this->array('to')[1]);
+
+            if (! $isLegal) {
                 $validator->errors()->add('to', 'Illegal move');
-            };
+            }
         });
     }
 }
-
