@@ -11,6 +11,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (! app()->environment(['local', 'testing'])) {
+            return;
+        }
+
         Schema::create('users', function (Blueprint $table) {
             $table->id();
             $table->string('username');
@@ -42,6 +46,10 @@ return new class extends Migration
      */
     public function down(): void
     {
+        if (! app()->environment(['local', 'testing'])) {
+            return;
+        }
+
         Schema::dropIfExists('users');
         Schema::dropIfExists('password_reset_tokens');
         Schema::dropIfExists('sessions');
